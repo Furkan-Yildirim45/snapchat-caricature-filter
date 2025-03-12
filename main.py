@@ -13,6 +13,7 @@ Temel olarak dört ana görüntü işleme tekniği kullanılmaktadır:
 
 import cv2
 import numpy as np
+import time
 
 def apply_vintage_filter(image):
     # Görüntüyü float32 formatına dönüştür
@@ -53,53 +54,66 @@ def apply_vintage_filter(image):
     return final_img
 
 def apply_cartoon_effect(img):
-    """
-    Giriş görüntüsüne karikatür efekti uygular.
+    # Görüntü boyutunu küçült (FPS için)
+    img = cv2.resize(img, None, fx=0.5, fy=0.5)
     
-    Parametreler:
-    img (numpy.ndarray): BGR formatında giriş görüntüsü
-    
-    Dönüş:
-    numpy.ndarray: Karikatürleştirilmiş görüntü
-    """
-    
-    # AŞAMA 0: PERFORMANS İÇİN BOYUT KÜÇÜLTME
-    height, width = img.shape[:2]
-    # Görüntüyü yarı boyuta indir (işlem hızı için)
-    img_small = cv2.resize(img, (width//2, height//2))
-    
-    # AŞAMA 1: RENK İŞLEME VE YUMUŞATMA
-    # Ağır mean-shift yerine bilateral filtre kullan
-    img_color = cv2.bilateralFilter(img_small, d=5, sigmaColor=150, sigmaSpace=150)
+    # AŞAMA 1: GÜRÜLTÜ AZALTMA
+    img_blur = cv2.medianBlur(img, 5)
     
     # AŞAMA 2: KENAR TESPİTİ
-    gray = cv2.cvtColor(img_small, cv2.COLOR_BGR2GRAY)
-    blur = cv2.medianBlur(gray, 5)
-    edges = cv2.adaptiveThreshold(blur, 255,
-                                cv2.ADAPTIVE_THRESH_MEAN_C,
+    gray = cv2.cvtColor(img_blur, cv2.COLOR_BGR2GRAY)
+    edges = cv2.adaptiveThreshold(gray, 255,
+                                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                 cv2.THRESH_BINARY,
-                                blockSize=9,
-                                C=5)
+                                blockSize=5,
+                                C=2)
     
-    # AŞAMA 3: BASIT RENK KUANTALAMA
-    # K-means yerine daha basit bir kuantalama kullan
-    div = 32
-    img_color = img_color // div * div + div // 2
+    # AŞAMA 3: RENK İŞLEME
+    img_color = img_blur.copy()
+    
+    # Gölge tespiti için gri tonlama
+    gray = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
+    
+    # Gölge maskesi oluştur
+    _, shadow_mask = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY)
+    shadow_mask = cv2.bitwise_not(shadow_mask)
+    
+    # Renk kuantalama (gölgeler hariç)
+    img_color = np.uint8(np.round(img_color / 15.0) * 15.0)
+    
+    # HSV uzayına çevir
+    img_hsv = cv2.cvtColor(img_color, cv2.COLOR_BGR2HSV)
+    h, s, v = cv2.split(img_hsv)
+    
+    # Gölgeli olmayan alanlarda doygunluğu artır
+    s_boost = np.where(
+        shadow_mask == 0,
+        np.clip(s * 1 + 10, 0, 255),
+        np.clip(s * 0.7, 0, 255)
+    ).astype(np.uint8)
+    
+    # Parlaklık ayarı (gölgelere göre adaptif)
+    v_boost = np.where(
+        shadow_mask == 0,
+        np.clip(v * 1.1, 0, 255),
+        np.clip(v * 0.7, 0, 255)
+    ).astype(np.uint8)
+    
+    # Renkleri birleştir
+    img_hsv = cv2.merge([h, s_boost, v_boost])
+    img_color = cv2.cvtColor(img_hsv, cv2.COLOR_HSV2BGR)
+    
+    # Son rötuş için hafif yumuşatma
+    img_color = cv2.GaussianBlur(img_color, (3, 3), 0)
     
     # AŞAMA 4: KENAR VE RENKLERİ BİRLEŞTİRME
-    edges_colored = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
-    cartoon = cv2.bitwise_and(img_color, edges_colored)
+    edges_color = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    cartoon = cv2.bitwise_and(img_color, img_color, mask=edges)
     
-    # AŞAMA 5: RENK İYİLEŞTİRME
-    # Tek seferde HSV dönüşümü
-    hsv = cv2.cvtColor(cartoon, cv2.COLOR_BGR2HSV)
-    h, s, v = cv2.split(hsv)
-    s = cv2.add(s, 30)  # Doygunluğu artır
-    v = cv2.add(v, 20)  # Parlaklığı artır
-    cartoon = cv2.cvtColor(cv2.merge([h, s, v]), cv2.COLOR_HSV2BGR)
-    
-    # Son olarak orijinal boyuta geri döndür
-    cartoon = cv2.resize(cartoon, (width, height))
+    # Görüntüyü orijinal boyuta geri döndür
+    target_width = int(img.shape[1] * 2)
+    target_height = int(img.shape[0] * 2)
+    cartoon = cv2.resize(cartoon, (target_width, target_height))
     
     return cartoon
 
@@ -122,10 +136,12 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     cap.set(cv2.CAP_PROP_FPS, 30)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Buffer'ı minimize et
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)  # Buffer'ı biraz artır
     
     # FPS sayacı için değişkenler
-    prev_time = 0
+    fps_start_time = time.time()
+    fps_counter = 0
+    fps = 0
     
     while True:
         # Frame'i oku
@@ -134,13 +150,12 @@ def main():
             print("Hata: Frame okunamadı!")
             break
         
-        # FPS hesapla
-        current_time = cv2.getTickCount()
-        if prev_time > 0:
-            fps = cv2.getTickFrequency() / (current_time - prev_time)
-        else:
-            fps = 0
-        prev_time = current_time
+        # FPS hesapla (her saniyede bir güncelle)
+        fps_counter += 1
+        if time.time() - fps_start_time > 1:
+            fps = fps_counter
+            fps_counter = 0
+            fps_start_time = time.time()
         
         # Karikatür efektini uygula
         cartoon = apply_cartoon_effect(frame)
@@ -149,11 +164,8 @@ def main():
         cv2.putText(cartoon, f"FPS: {int(fps)}", (10, 30), 
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         
-        # Karşılaştırma için orijinal ve filtreli görüntüyü yan yana göster
-        combined = np.hstack((frame, cartoon))
-        
         # Sonucu ekranda göster
-        cv2.imshow('TikTok Karikatür Filtresi (Orijinal | Filtreli)', combined)
+        cv2.imshow('Karikatür Filtresi', cartoon)
         
         # 'q' tuşuna basılırsa çık
         if cv2.waitKey(1) & 0xFF == ord('q'):
