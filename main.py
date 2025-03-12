@@ -14,6 +14,13 @@ Temel olarak dört ana görüntü işleme tekniği kullanılmaktadır:
 import cv2
 import numpy as np
 import time
+import tkinter as tk
+from tkinter import messagebox
+from PIL import Image, ImageTk
+
+# Global frame değişkeni
+frame = None
+cap = None  # Webcam nesnesi
 
 def apply_vintage_filter(image):
     # Görüntüyü float32 formatına dönüştür
@@ -117,63 +124,65 @@ def apply_cartoon_effect(img):
     
     return cartoon
 
-def main():
-    """
-    Ana program döngüsü.
-    Webcam'den görüntü alır, filtreyi uygular ve sonucu gösterir.
-    Çıkış için 'q' tuşuna basılmalıdır.
-    """
-    
-    # Webcam'i başlat
+def capture_photo(frame):
+    # Fotoğrafı yüksek çözünürlükte kaydet
+    cv2.imwrite('captured_photo.png', frame)
+    print("Fotoğraf kaydedildi: captured_photo.png")
+    messagebox.showinfo("Fotoğraf Çekildi", "Fotoğraf kaydedildi: captured_photo.png")
+
+def update_frame():
+    global frame
+    ret, frame = cap.read()
+    if ret:
+        cartoon = apply_cartoon_effect(frame)
+        
+        # OpenCV görüntüsünü tkinter etiketine yerleştir
+        img = cv2.cvtColor(cartoon, cv2.COLOR_BGR2RGB)  # BGR'den RGB'ye çevir
+        img = Image.fromarray(img)  # NumPy dizisini PIL görüntüsüne çevir
+        img = ImageTk.PhotoImage(img)  # PIL görüntüsünü PhotoImage'e çevir
+
+        # Label'a resmi yerleştir
+        preview_label.imgtk = img
+        preview_label.configure(image=img)
+
+    preview_label.after(10, update_frame)  # Her 10 ms'de bir frame güncelle
+
+def start_capture():
+    global cap
     cap = cv2.VideoCapture(0)
     
-    # Webcam başlatılamadıysa hata ver
     if not cap.isOpened():
         print("Hata: Webcam başlatılamadı!")
         return
-    
-    # Webcam ayarlarını optimize et
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    cap.set(cv2.CAP_PROP_FPS, 30)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)  # Buffer'ı biraz artır
-    
-    # FPS sayacı için değişkenler
-    fps_start_time = time.time()
-    fps_counter = 0
-    fps = 0
-    
-    while True:
-        # Frame'i oku
-        ret, frame = cap.read()
-        if not ret:
-            print("Hata: Frame okunamadı!")
-            break
-        
-        # FPS hesapla (her saniyede bir güncelle)
-        fps_counter += 1
-        if time.time() - fps_start_time > 1:
-            fps = fps_counter
-            fps_counter = 0
-            fps_start_time = time.time()
-        
-        # Karikatür efektini uygula
-        cartoon = apply_cartoon_effect(frame)
-        
-        # FPS'i ekrana yaz
-        cv2.putText(cartoon, f"FPS: {int(fps)}", (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        
-        # Sonucu ekranda göster
-        cv2.imshow('Karikatür Filtresi', cartoon)
-        
-        # 'q' tuşuna basılırsa çık
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-    
-    # Kaynakları serbest bırak
-    cap.release()
-    cv2.destroyAllWindows()
+
+    update_frame()  # İlk frame'i güncelleyerek başlat
+
+def on_capture_button_click():
+    global frame  # Global frame değişkenini kullan
+    print("Fotoğraf çekiliyor...")
+    for i in range(3, 0, -1):
+        print(f"{i}...")
+        time.sleep(1)
+    capture_photo(frame)  # Fotoğrafı çek
+
+
 
 if __name__ == "__main__":
-    main() 
+    # Tkinter arayüzü oluştur
+    root = tk.Tk()
+    root.title("Karikatür Filtresi")
+
+    # Pencere boyutunu ayarla
+    root.geometry("720x600")  # 720 genişlik, 600 yükseklik
+
+    # Önizleme paneli
+    preview_label = tk.Label(root, width=720, height=480)
+    preview_label.pack(pady=10)
+
+    # Fotoğraf çek butonu
+    capture_button = tk.Button(root, text="Fotoğraf Çek", command=on_capture_button_click, width=20)
+    capture_button.pack(pady=10)
+
+    # Uygulamayı başlat
+    start_capture()
+    root.mainloop()
