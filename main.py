@@ -61,9 +61,6 @@ def apply_vintage_filter(image):
     return final_img
 
 def apply_cartoon_effect(img):
-    # Görüntü boyutunu küçült (FPS için)
-    img = cv2.resize(img, None, fx=0.5, fy=0.5)
-    
     # AŞAMA 1: GÜRÜLTÜ AZALTMA
     img_blur = cv2.medianBlur(img, 5)
     
@@ -117,16 +114,14 @@ def apply_cartoon_effect(img):
     edges_color = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
     cartoon = cv2.bitwise_and(img_color, img_color, mask=edges)
     
-    # Görüntüyü orijinal boyuta geri döndür
-    target_width = int(img.shape[1] * 2)
-    target_height = int(img.shape[0] * 2)
-    cartoon = cv2.resize(cartoon, (target_width, target_height))
-    
-    return cartoon
+    return cartoon  # Orijinal boyutta döndür
 
-def capture_photo(frame):
+def capture_photo():
+    global frame
+    # Karikatür efekti uygulanmış görüntüyü al
+    cartoon_frame = apply_cartoon_effect(frame)
     # Fotoğrafı yüksek çözünürlükte kaydet
-    cv2.imwrite('captured_photo.png', frame)
+    cv2.imwrite('captured_photo.png', cartoon_frame)  # Karikatür efekti uygulanmış frame'i kaydet
     print("Fotoğraf kaydedildi: captured_photo.png")
     messagebox.showinfo("Fotoğraf Çekildi", "Fotoğraf kaydedildi: captured_photo.png")
 
@@ -158,14 +153,11 @@ def start_capture():
     update_frame()  # İlk frame'i güncelleyerek başlat
 
 def on_capture_button_click():
-    global frame  # Global frame değişkenini kullan
     print("Fotoğraf çekiliyor...")
     for i in range(3, 0, -1):
         print(f"{i}...")
         time.sleep(1)
-    capture_photo(frame)  # Fotoğrafı çek
-
-
+    capture_photo()  # Fotoğrafı çek
 
 if __name__ == "__main__":
     # Tkinter arayüzü oluştur
@@ -184,5 +176,5 @@ if __name__ == "__main__":
     capture_button.pack(pady=10)
 
     # Uygulamayı başlat
-    start_capture()
+    start_capture()    
     root.mainloop()
