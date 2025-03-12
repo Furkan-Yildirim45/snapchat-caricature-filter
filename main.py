@@ -63,65 +63,43 @@ def apply_cartoon_effect(img):
     numpy.ndarray: Karikatürleştirilmiş görüntü
     """
     
-    # Orijinal görüntüyü kopyala
-    img_color = img.copy()
+    # AŞAMA 0: PERFORMANS İÇİN BOYUT KÜÇÜLTME
+    height, width = img.shape[:2]
+    # Görüntüyü yarı boyuta indir (işlem hızı için)
+    img_small = cv2.resize(img, (width//2, height//2))
     
-    # AŞAMA 1: RENK DÜZENLEME
-    # Bilateral filtre ile detayları koru
-    img_color = cv2.bilateralFilter(img_color, d=9, sigmaColor=75, sigmaSpace=75)
+    # AŞAMA 1: RENK İŞLEME VE YUMUŞATMA
+    # Ağır mean-shift yerine bilateral filtre kullan
+    img_color = cv2.bilateralFilter(img_small, d=5, sigmaColor=150, sigmaSpace=150)
     
     # AŞAMA 2: KENAR TESPİTİ
-    # Gri tonlamaya çevir
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # Median blur uygula
-    gray = cv2.medianBlur(gray, 7)
-    
-    # Kenarları tespit et
-    edges = cv2.adaptiveThreshold(gray, 255,
+    gray = cv2.cvtColor(img_small, cv2.COLOR_BGR2GRAY)
+    blur = cv2.medianBlur(gray, 5)
+    edges = cv2.adaptiveThreshold(blur, 255,
                                 cv2.ADAPTIVE_THRESH_MEAN_C,
                                 cv2.THRESH_BINARY,
                                 blockSize=9,
-                                C=2)
+                                C=5)
     
-    # Kenarları kalınlaştır
-    kernel = np.ones((2,2), np.uint8)
-    edges = cv2.dilate(edges, kernel, iterations=1)
-    
-    # AŞAMA 3: RENK SADELEŞTIRME
-    # Renk paletini azalt
-    div = 64
+    # AŞAMA 3: BASIT RENK KUANTALAMA
+    # K-means yerine daha basit bir kuantalama kullan
+    div = 32
     img_color = img_color // div * div + div // 2
     
     # AŞAMA 4: KENAR VE RENKLERİ BİRLEŞTİRME
-    # Kenarları 3 kanallı yap
-    edges_color = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
-    
-    # Kenarları ve renkleri birleştir
-    cartoon = cv2.bitwise_and(img_color, edges_color)
+    edges_colored = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    cartoon = cv2.bitwise_and(img_color, edges_colored)
     
     # AŞAMA 5: RENK İYİLEŞTİRME
-    # HSV'ye çevir
+    # Tek seferde HSV dönüşümü
     hsv = cv2.cvtColor(cartoon, cv2.COLOR_BGR2HSV)
-    
-    # Doygunluk ve parlaklığı artır
     h, s, v = cv2.split(hsv)
-    s = cv2.add(s, 40)  # Doygunluğu artır
+    s = cv2.add(s, 30)  # Doygunluğu artır
     v = cv2.add(v, 20)  # Parlaklığı artır
+    cartoon = cv2.cvtColor(cv2.merge([h, s, v]), cv2.COLOR_HSV2BGR)
     
-    # Kanalları birleştir
-    hsv = cv2.merge([h, s, v])
-    
-    # BGR'ye geri çevir
-    cartoon = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-    
-    # Son rötuşlar
-    # Kontrastı artır
-    lab = cv2.cvtColor(cartoon, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-    l = clahe.apply(l)
-    lab = cv2.merge([l, a, b])
-    cartoon = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    # Son olarak orijinal boyuta geri döndür
+    cartoon = cv2.resize(cartoon, (width, height))
     
     return cartoon
 
@@ -144,6 +122,10 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     cap.set(cv2.CAP_PROP_FPS, 30)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Buffer'ı minimize et
+    
+    # FPS sayacı için değişkenler
+    prev_time = 0
     
     while True:
         # Frame'i oku
@@ -152,8 +134,20 @@ def main():
             print("Hata: Frame okunamadı!")
             break
         
+        # FPS hesapla
+        current_time = cv2.getTickCount()
+        if prev_time > 0:
+            fps = cv2.getTickFrequency() / (current_time - prev_time)
+        else:
+            fps = 0
+        prev_time = current_time
+        
         # Karikatür efektini uygula
         cartoon = apply_cartoon_effect(frame)
+        
+        # FPS'i ekrana yaz
+        cv2.putText(cartoon, f"FPS: {int(fps)}", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         
         # Karşılaştırma için orijinal ve filtreli görüntüyü yan yana göster
         combined = np.hstack((frame, cartoon))
