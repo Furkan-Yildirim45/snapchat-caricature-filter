@@ -62,7 +62,7 @@ def apply_vintage_filter(image):
 
 def apply_cartoon_effect(img):
     # AŞAMA 1: GÜRÜLTÜ AZALTMA
-    img_blur = cv2.medianBlur(img, 5)
+    img_blur = cv2.bilateralFilter(img, d=5, sigmaColor=50, sigmaSpace=50)  # Daha az bulanıklık için sigma değerlerini düşürdük
     
     # AŞAMA 2: KENAR TESPİTİ
     gray = cv2.cvtColor(img_blur, cv2.COLOR_BGR2GRAY)
@@ -70,7 +70,7 @@ def apply_cartoon_effect(img):
                                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                 cv2.THRESH_BINARY,
                                 blockSize=5,
-                                C=2)
+                                C=3)
     
     # AŞAMA 3: RENK İŞLEME
     img_color = img_blur.copy()
@@ -79,7 +79,7 @@ def apply_cartoon_effect(img):
     gray = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
     
     # Gölge maskesi oluştur
-    _, shadow_mask = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY)
+    _, shadow_mask = cv2.threshold(gray, 60, 255, cv2.THRESH_BINARY)
     shadow_mask = cv2.bitwise_not(shadow_mask)
     
     # Renk kuantalama (gölgeler hariç)
@@ -92,15 +92,15 @@ def apply_cartoon_effect(img):
     # Gölgeli olmayan alanlarda doygunluğu artır
     s_boost = np.where(
         shadow_mask == 0,
-        np.clip(s * 1 + 10, 0, 255),
-        np.clip(s * 0.7, 0, 255)
+        np.clip(s * 1.2, 0, 255),
+        np.clip(s * 0.8, 0, 255)
     ).astype(np.uint8)
     
     # Parlaklık ayarı (gölgelere göre adaptif)
     v_boost = np.where(
         shadow_mask == 0,
-        np.clip(v * 1.1, 0, 255),
-        np.clip(v * 0.7, 0, 255)
+        np.clip(v * 1.2, 0, 255),
+        np.clip(v * 0.8, 0, 255)
     ).astype(np.uint8)
     
     # Renkleri birleştir
@@ -108,7 +108,7 @@ def apply_cartoon_effect(img):
     img_color = cv2.cvtColor(img_hsv, cv2.COLOR_HSV2BGR)
     
     # Son rötuş için hafif yumuşatma
-    img_color = cv2.GaussianBlur(img_color, (3, 3), 0)
+    img_color = cv2.GaussianBlur(img_color, (1, 1), 0)  # Daha az bulanıklık için boyutu 1x1 yaptık
     
     # AŞAMA 4: KENAR VE RENKLERİ BİRLEŞTİRME
     edges_color = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
